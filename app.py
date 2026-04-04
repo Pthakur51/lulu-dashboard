@@ -2,115 +2,211 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# -------------------------------
+# -----------------------------
 # PAGE CONFIG
-# -------------------------------
-st.set_page_config(page_title="Dashboard", layout="wide")
-st.title("📊 Data Dashboard")
+# -----------------------------
+st.set_page_config(layout="wide")
 
-# -------------------------------
+# -----------------------------
 # LOAD DATA
-# -------------------------------
+# -----------------------------
 df = pd.read_csv("data.csv")
+df['order_datetime'] = pd.to_datetime(df['order_datetime'])
 
-# Clean column names
-df.columns = df.columns.str.strip().str.lower()
+# -----------------------------
+# SIDEBAR FILTERS
+# -----------------------------
+st.sidebar.title("🔎 Filters")
+st.sidebar.markdown("All charts update instantly.")
 
+# Date Range
+date_range = st.sidebar.date_input(
+    "Date Range",
+    [df['order_datetime'].min(), df['order_datetime'].max()]
+)
 
+# City
+cities = st.sidebar.multiselect(
+    "City",
+    df['city'].dropna().unique(),
+    default=df['city'].dropna().unique()
+)
 
-# -------------------------------
-# TRY CONVERTING ALL TO NUMERIC WHERE POSSIBLE
-# -------------------------------
-for col in df.columns:
-    try:
-        df[col] = pd.to_numeric(df[col])
-    except:
-        pass
+# Channel
+channels = st.sidebar.multiselect(
+    "Channel",
+    df['channel'].dropna().unique(),
+    default=df['channel'].dropna().unique()
+)
 
-# -------------------------------
-# FIND NUMERIC COLUMNS AGAIN
-# -------------------------------
-numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+# Department
+departments = st.sidebar.multiselect(
+    "Department",
+    df['department'].dropna().unique(),
+    default=df['department'].dropna().unique()
+)
 
-# If still empty → fallback
-if not numeric_cols:
-    numeric_cols = df.columns.tolist()
-    st.warning("⚠ No numeric columns detected. Select manually.")
+# Gender ✅
+genders = st.sidebar.multiselect(
+    "Gender",
+    df['gender'].dropna().unique(),
+    default=df['gender'].dropna().unique()
+)
 
-# -------------------------------
-# COLUMN SELECTION
-# -------------------------------
-st.subheader("🔧 Select Columns")
+# Campaign ✅
+campaigns = st.sidebar.multiselect(
+    "Campaign",
+    df['campaign'].dropna().unique(),
+    default=df['campaign'].dropna().unique()
+)
 
-col1, col2, col3 = st.columns(3)
+# Age Range ✅
+age_min = int(df['age'].min())
+age_max = int(df['age'].max())
 
-revenue_col = col1.selectbox("💰 Revenue Column", numeric_cols)
-date_col = col2.selectbox("📅 Date/Month Column", df.columns)
-product_col = col3.selectbox("📦 Product Column", df.columns)
+age_range = st.sidebar.slider(
+    "Customer Age Range",
+    min_value=age_min,
+    max_value=age_max,
+    value=(age_min, age_max)
+)
 
-# Stop if something not selected
-if revenue_col is None or date_col is None:
-    st.error("❌ Please select valid columns")
-    st.stop()
+# -----------------------------
+# APPLY FILTERS
+# -----------------------------
+filtered_df = df[
+    (df['order_datetime'].dt.date >= date_range[0]) &
+    (df['order_datetime'].dt.date <= date_range[1]) &
+    (df['city'].isin(cities)) &
+    (df['channel'].isin(channels)) &
+    (df['department'].isin(departments)) &
+    (df['gender'].isin(genders)) &
+    (df['campaign'].isin(campaigns)) &
+    (df['age'] >= age_range[0]) &
+    (df['age'] <= age_range[1])
+]
 
-# -------------------------------
-# HANDLE DATE
-# -------------------------------
-try:
-    df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
-    df["month"] = df[date_col].dt.to_period("M").astype(str)
-except:
-    df["month"] = df[date_col].astype(str)
+# -----------------------------
+# KPIs
+# -----------------------------
+total_revenue = filtered_df['line_value_aed'].sum()
+total_qty = filtered_df['quantity'].sum()
+avg_order_value = total_revenue / filtered_df['order_id'].nunique()
+return_rate = filtered_df['returned'].mean() * 100
 
-# -------------------------------
-# FILTER
-# -------------------------------
-st.sidebar.header("Filters")
+# -----------------------------
+# TITLE
+# -----------------------------
+st.title("🛒 Retail Analytics Dashboard")
+st.markdown(f"**{len(filtered_df):,} transactions shown**")
 
-months = sorted(df["month"].dropna().unique())
+# -----------------------------
+# TABS
+# -----------------------------
+tabs = st.tabs([
+    "📊 Overview",
+    "📈 Trend Analysis",
+    "📦 Category Analysis",
+    "⚖️ Comparison",
+    "📋 Data Table"
+])
 
-if months:
-    selected_month = st.sidebar.selectbox("Select Month", months)
-    df_filtered = df[df["month"] == selected_month]
-else:
-    df_filtered = df
+# -----------------------------
+# TAB 1 — OVERVIEW
+# -----------------------------
+with tabs[0]:
 
-# -------------------------------
-# SAFE NUMERIC CONVERSION
-# -------------------------------
-df_filtered[revenue_col] = pd.to_numeric(df_filtered[revenue_col], errors='coerce')
+    st.subheader("Key Performance Indicators")
 
-# -------------------------------
-# KPI
-# -------------------------------
-col1, col2 = st.columns(2)
+    col1, col2, col3, col4 = st.columns([3,2,2,2])
 
-total_revenue = df_filtered[revenue_col].sum()
-avg_order = df_filtered[revenue_col].mean()
+    col1.metric("Total Revenue", f"AED {total_revenue:,.0f}")
+    col2.metric("Total Quantity", f"{total_qty:,}")
+    col3.metric("Avg Order Value", f"AED {avg_order_value:,.1f}")
+    col4.metric("Return Rate", f"{return_rate:.2f}%")
 
-col1.metric("💰 Total Revenue", f"{total_revenue:,.0f}")
-col2.metric("📦 Avg Order", f"{avg_order:,.0f}")
+    col1, col2 = st.columns(2)
 
-# -------------------------------
-# CHARTS
-# -------------------------------
-tab1, tab2 = st.tabs(["📈 Trend", "📦 Products"])
+    # Revenue by City
+    city_rev = filtered_df.groupby('city')['line_value_aed'].sum().reset_index()
+    fig1 = px.pie(
+        city_rev,
+        names='city',
+        values='line_value_aed',
+        hole=0.4,
+        title="Revenue by City"
+    )
+    col1.plotly_chart(fig1, use_container_width=True)
 
-with tab1:
-    trend = df.groupby("month")[revenue_col].sum().reset_index().sort_values("month")
-    fig = px.bar(trend, x="month", y=revenue_col)
+    # Payment Method
+    pay = filtered_df.groupby('payment_method')['quantity'].sum().reset_index()
+    fig2 = px.pie(
+        pay,
+        names='payment_method',
+        values='quantity',
+        hole=0.4,
+        title="Quantity by Payment Method"
+    )
+    col2.plotly_chart(fig2, use_container_width=True)
+
+# -----------------------------
+# TAB 2 — TREND ANALYSIS
+# -----------------------------
+with tabs[1]:
+
+    st.subheader("📈 Revenue Trend")
+
+    trend = filtered_df.groupby(
+        filtered_df['order_datetime'].dt.date
+    )['line_value_aed'].sum().reset_index()
+
+    fig = px.line(
+        trend,
+        x='order_datetime',
+        y='line_value_aed',
+        title="Daily Revenue"
+    )
     st.plotly_chart(fig, use_container_width=True)
 
-with tab2:
-    prod = df.groupby(product_col)[revenue_col].sum().reset_index()
-    fig2 = px.pie(prod, names=product_col, values=revenue_col)
-    st.plotly_chart(fig2, use_container_width=True)
+# -----------------------------
+# TAB 3 — CATEGORY ANALYSIS
+# -----------------------------
+with tabs[2]:
 
-# -------------------------------
-# DATA VIEW
-# -------------------------------
-st.subheader("Preview")
-st.dataframe(df.head(20))
+    st.subheader("📦 Category Performance")
 
+    cat = filtered_df.groupby('category')['line_value_aed'].sum().reset_index()
 
+    fig = px.bar(
+        cat,
+        x='category',
+        y='line_value_aed',
+        title="Revenue by Category"
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
+# -----------------------------
+# TAB 4 — COMPARISON
+# -----------------------------
+with tabs[3]:
+
+    st.subheader("⚖️ City Comparison")
+
+    comp = filtered_df.groupby('city')['line_value_aed'].sum().reset_index()
+
+    fig = px.bar(
+        comp,
+        x='city',
+        y='line_value_aed',
+        color='city',
+        title="Revenue by City"
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+# -----------------------------
+# TAB 5 — DATA TABLE
+# -----------------------------
+with tabs[4]:
+
+    st.subheader("📋 Data Table")
+    st.dataframe(filtered_df)
