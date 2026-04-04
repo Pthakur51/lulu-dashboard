@@ -22,7 +22,10 @@ df.columns = df.columns.str.strip().str.lower()
 # TRY CONVERTING ALL TO NUMERIC WHERE POSSIBLE
 # -------------------------------
 for col in df.columns:
-    df[col] = pd.to_numeric(df[col], errors='ignore')
+    try:
+        df[col] = pd.to_numeric(df[col])
+    except:
+        pass
 
 # -------------------------------
 # FIND NUMERIC COLUMNS AGAIN
