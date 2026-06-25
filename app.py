@@ -97,7 +97,7 @@ return_rate = filtered_df['returned'].mean() * 100
 # -----------------------------
 # TITLE
 # -----------------------------
-st.title("🛒 Retail Analytics Dashboard")
+st.title("🛒 Retail Analytics Dashboard | Lulu UAE Sales Analysis")
 st.markdown(f"**{len(filtered_df):,} transactions shown**")
 
 # -----------------------------
